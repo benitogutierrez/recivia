@@ -5,6 +5,7 @@ import { companies as companiesService, landings as landingsService, submissions
 import BlockRenderer from '../components/BlockRenderer'
 import FormRenderer from '../components/FormRenderer'
 import VoiceAssistant from '../components/voice/VoiceAssistant'
+import SoundWave from '../components/voice/SoundWave'
 import { resolveVariables } from '../lib/utils'
 
 export default function PublicLanding() {
@@ -62,58 +63,93 @@ export default function PublicLanding() {
         </Link>
       </nav>
 
-      <section className="grid grid-cols-1 items-center gap-14 px-[6%] py-16 lg:grid-cols-2" style={{ background: l.theme.bg }}>
-        <div className="space-y-6">
-          <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{ color: l.theme.primary }}>
-            {l.hero.eyebrow}
-          </span>
-          {beforeForm.length > 0 ? (
-            <div className="space-y-5 [&_h2]:text-[clamp(32px,4.5vw,52px)] [&_h2]:leading-[1.05]">
-              {beforeForm.map((b) => (
-                <BlockRenderer key={b.id} block={b} landing={l} company={company} />
-              ))}
-            </div>
-          ) : (
-            <div>
-              <h1 className="font-display text-[clamp(32px,4.5vw,52px)] font-bold leading-[1.05] tracking-tight text-ink">{l.hero.title}</h1>
-              <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-ink-soft">{l.hero.text}</p>
-            </div>
-          )}
-        </div>
+      {l.mode === 'voice' ? (
+        <section className="relative overflow-hidden px-[6%] py-20">
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-fuchsia-50/70 to-sky-50" />
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -left-24 -top-24 h-80 w-80 animate-pulse-slow rounded-full bg-violet-200/60 blur-3xl" />
+            <div className="absolute right-[-4rem] top-10 h-96 w-96 animate-pulse-slow rounded-full bg-sky-200/60 blur-3xl [animation-delay:1s]" />
+            <div className="absolute bottom-[-3rem] left-1/3 h-72 w-72 animate-pulse-slow rounded-full bg-pink-200/50 blur-3xl [animation-delay:2s]" />
+            <SoundWave className="absolute inset-x-0 top-1/2 h-40 w-full -translate-y-1/2 opacity-[0.35]" />
+          </div>
 
-        <div className="rounded-2xl bg-white p-7 shadow-pop">
-          {!sent && l.mode === 'voice' ? (
-            <VoiceAssistant landing={l} company={company} onComplete={(values) => submissionsService.submitPublic(l.id, values)} />
-          ) : !sent ? (
-            <>
-              <h2 className="text-[19px] font-bold text-ink">Solicita información</h2>
-              <p className="mt-1 text-[12.5px] text-ink-faint">Completa tus datos y nuestro equipo se pondrá en contacto.</p>
-              <div className="mt-5">
-                <FormRenderer fields={l.fields} submitLabel={l.submitLabel || l.hero.button} primary={l.theme.primary} onSubmit={onSubmit} honeypot />
-              </div>
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-sunk px-3 py-2 text-[11.5px] text-ink-faint">
-                Verificación: {captcha.a} + {captcha.b} =
-                <input
-                  value={captcha.answer}
-                  onChange={(e) => setCaptcha({ ...captcha, answer: e.target.value })}
-                  className="w-14 rounded border border-line px-1.5 py-0.5 text-center"
-                />
-              </div>
-              <label className="mt-3 flex items-start gap-2 text-[10.5px] text-ink-faint">
-                <input required type="checkbox" className="mt-0.5" /> Acepto el tratamiento de mis datos personales.
-              </label>
-            </>
-          ) : (
-            <div className="py-8 text-center">
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-mint-50 text-mint-600">
-                <CheckCircle2 size={28} />
-              </div>
-              <h2 className="mt-4 text-[19px] font-bold text-ink">¡Solicitud recibida!</h2>
-              <p className="mt-2 text-[13px] text-ink-faint">{resolveVariables(l.automation.actions.confirmationMessage, ctx)}</p>
+          <div className="relative mx-auto max-w-xl text-center">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.15em] shadow-soft backdrop-blur"
+              style={{ color: l.theme.primary }}
+            >
+              {l.hero.eyebrow}
+            </span>
+            <h1 className="mt-5 font-display text-[clamp(28px,4.2vw,44px)] font-bold leading-[1.1] tracking-tight text-ink">{l.hero.title}</h1>
+            <p className="mx-auto mt-4 max-w-md text-[14.5px] leading-relaxed text-ink-soft">{l.hero.text}</p>
+
+            <div className="mt-10 rounded-[28px] border border-white/70 bg-white/80 p-7 shadow-pop backdrop-blur-xl sm:p-9">
+              {!sent ? (
+                <VoiceAssistant landing={l} company={company} onComplete={(values) => submissionsService.submitPublic(l.id, values)} />
+              ) : (
+                <div className="py-6 text-center">
+                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-mint-50 text-mint-600">
+                    <CheckCircle2 size={28} />
+                  </div>
+                  <h2 className="mt-4 text-[19px] font-bold text-ink">¡Solicitud recibida!</h2>
+                  <p className="mt-2 text-[13px] text-ink-faint">{resolveVariables(l.automation.actions.confirmationMessage, ctx)}</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : (
+        <section className="grid grid-cols-1 items-center gap-14 px-[6%] py-16 lg:grid-cols-2" style={{ background: l.theme.bg }}>
+          <div className="space-y-6">
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{ color: l.theme.primary }}>
+              {l.hero.eyebrow}
+            </span>
+            {beforeForm.length > 0 ? (
+              <div className="space-y-5 [&_h2]:text-[clamp(32px,4.5vw,52px)] [&_h2]:leading-[1.05]">
+                {beforeForm.map((b) => (
+                  <BlockRenderer key={b.id} block={b} landing={l} company={company} />
+                ))}
+              </div>
+            ) : (
+              <div>
+                <h1 className="font-display text-[clamp(32px,4.5vw,52px)] font-bold leading-[1.05] tracking-tight text-ink">{l.hero.title}</h1>
+                <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-ink-soft">{l.hero.text}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl bg-white p-7 shadow-pop">
+            {!sent ? (
+              <>
+                <h2 className="text-[19px] font-bold text-ink">Solicita información</h2>
+                <p className="mt-1 text-[12.5px] text-ink-faint">Completa tus datos y nuestro equipo se pondrá en contacto.</p>
+                <div className="mt-5">
+                  <FormRenderer fields={l.fields} submitLabel={l.submitLabel || l.hero.button} primary={l.theme.primary} onSubmit={onSubmit} honeypot />
+                </div>
+                <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-sunk px-3 py-2 text-[11.5px] text-ink-faint">
+                  Verificación: {captcha.a} + {captcha.b} =
+                  <input
+                    value={captcha.answer}
+                    onChange={(e) => setCaptcha({ ...captcha, answer: e.target.value })}
+                    className="w-14 rounded border border-line px-1.5 py-0.5 text-center"
+                  />
+                </div>
+                <label className="mt-3 flex items-start gap-2 text-[10.5px] text-ink-faint">
+                  <input required type="checkbox" className="mt-0.5" /> Acepto el tratamiento de mis datos personales.
+                </label>
+              </>
+            ) : (
+              <div className="py-8 text-center">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-mint-50 text-mint-600">
+                  <CheckCircle2 size={28} />
+                </div>
+                <h2 className="mt-4 text-[19px] font-bold text-ink">¡Solicitud recibida!</h2>
+                <p className="mt-2 text-[13px] text-ink-faint">{resolveVariables(l.automation.actions.confirmationMessage, ctx)}</p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {afterForm.length > 0 && (
         <div className="mx-auto max-w-3xl space-y-8 px-[6%] py-14">

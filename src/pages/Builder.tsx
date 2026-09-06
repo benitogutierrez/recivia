@@ -22,6 +22,7 @@ import {
   X,
   FileText,
   Mic,
+  Settings2,
 } from 'lucide-react'
 import { companies as companiesService, landings as landingsService, pageBuilder, useDb } from '../services'
 import { useToast } from '../lib/toast'
@@ -29,6 +30,7 @@ import { fmt } from '../lib/utils'
 import BlockRenderer from '../components/BlockRenderer'
 import FormRenderer from '../components/FormRenderer'
 import { BLOCK_LIBRARY } from '../services/pageBuilder'
+import { VOICE_OPTIONS } from '../lib/voice/elevenLabsVoices'
 import type { BlockType, PageBlock } from '../types'
 
 const BREAKPOINTS = { desktop: '100%', tablet: '760px', mobile: '390px' }
@@ -62,6 +64,7 @@ export default function Builder() {
   const [breakpoint, setBreakpoint] = useState<'desktop' | 'tablet' | 'mobile'>('desktop')
   const [showThemes, setShowThemes] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const past = useRef<PageBlock[][]>([])
@@ -164,6 +167,15 @@ export default function Builder() {
           >
             <Mic size={13} /> {l.mode === 'voice' ? 'Asistente de voz' : 'Activar asistente de voz'}
           </button>
+          {l.mode === 'voice' && (
+            <button
+              onClick={() => setShowVoiceSettings(true)}
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint transition hover:bg-surface-muted"
+              title="Configurar asistente de voz"
+            >
+              <Settings2 size={15} />
+            </button>
+          )}
           <button
             onClick={() => navigate(`/formulario/${l.id}`)}
             className="flex items-center gap-1.5 rounded-lg border border-line bg-white px-3 py-2 text-[12px] font-bold text-ink-soft transition hover:bg-surface-muted"
@@ -289,6 +301,7 @@ export default function Builder() {
         />
       )}
       {showVersions && <VersionsDrawer landingId={l.id} onClose={() => setShowVersions(false)} />}
+      {showVoiceSettings && <VoiceSettingsDrawer landingId={l.id} onClose={() => setShowVoiceSettings(false)} />}
     </div>
   )
 }
@@ -482,5 +495,70 @@ function VersionsDrawer({ landingId, onClose }: { landingId: string; onClose: ()
         </div>
       </div>
     </div>
+  )
+}
+
+function VoiceSettingsDrawer({ landingId, onClose }: { landingId: string; onClose: () => void }) {
+  const showToast = useToast((s) => s.show)
+  const l = landingsService.get(landingId)
+  if (!l) return null
+  const cfg = l.voiceAssistant
+  const update = (patch: Partial<typeof cfg>) => landingsService.updateVoiceAssistant(landingId, patch)
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-navy-950/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="h-full w-full max-w-sm overflow-y-auto animate-fade-in bg-white p-6 shadow-pop" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-[16px] font-bold text-ink">Asistente de voz</h2>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full text-ink-faint hover:bg-surface-muted">
+            <X size={16} />
+          </button>
+        </div>
+
+        <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-ink-faint">Voz</p>
+        <div className="mb-6 grid grid-cols-2 gap-2">
+          {VOICE_OPTIONS.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => {
+                update({ voiceName: v.id })
+                showToast(`Voz cambiada a ${v.label}`)
+              }}
+              className={`rounded-xl border p-3 text-left transition ${
+                cfg.voiceName === v.id ? 'border-brand-400 bg-brand-50/60' : 'border-line hover:bg-surface-sunk'
+              }`}
+            >
+              <p className="text-[12.5px] font-bold text-ink">{v.label}</p>
+              <p className="text-[10.5px] text-ink-faint">{v.gender}</p>
+            </button>
+          ))}
+        </div>
+
+        <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-ink-faint">Guion de la conversación</p>
+        <div className="space-y-3.5">
+          <VoiceField label="Saludo inicial" value={cfg.greeting} onChange={(v) => update({ greeting: v })} />
+          <VoiceField label="Pregunta: ¿a quién visita?" value={cfg.askHostQuestion} onChange={(v) => update({ askHostQuestion: v })} />
+          <VoiceField label="Pregunta: nombre del visitante" value={cfg.askNameQuestion} onChange={(v) => update({ askNameQuestion: v })} />
+          <VoiceField label="Despedida" value={cfg.farewell} onChange={(v) => update({ farewell: v })} />
+        </div>
+        <p className="mt-4 text-[10.5px] text-ink-faint">
+          Puedes usar variables como <code className="rounded bg-surface-sunk px-1 py-0.5 font-mono">{'{{empresa.nombre}}'}</code>.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function VoiceField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block text-[11px] font-bold text-ink-soft">
+      {label}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={2}
+        className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-[12.5px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-100"
+      />
+    </label>
   )
 }

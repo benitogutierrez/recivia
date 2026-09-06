@@ -47,11 +47,16 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
 
   async function hear(): Promise<{ transcript: string; confident: boolean }> {
     setVisualMode('listening')
-    setCaption({ speaker: null, text: '' })
+    setCaption({ speaker: 'user', text: 'Escuchando…' })
     try {
-      const { transcript, confidence } = await voiceEngine.listen({ languageCode: cfg.languageCode, timeoutMs: 7000, onLevel: setLevel })
+      const { transcript, confidence } = await voiceEngine.listen({
+        languageCode: cfg.languageCode,
+        timeoutMs: 9000,
+        onLevel: setLevel,
+        onInterim: (text) => setCaption({ speaker: 'user', text: text || 'Escuchando…' }),
+      })
       setLevel(0)
-      setCaption({ speaker: 'user', text: transcript || '(no se escuchó nada)' })
+      setCaption({ speaker: 'user', text: transcript || '(no se escuchó nada, ¿puedes repetir?)' })
       return { transcript: transcript.trim(), confident: transcript.trim().length > 0 && confidence >= 0.55 }
     } catch (err) {
       setLevel(0)

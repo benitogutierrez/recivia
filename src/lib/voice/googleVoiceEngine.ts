@@ -17,7 +17,13 @@ export interface SpeakHandle {
 
 export interface VoiceEngine {
   speak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle>
-  listen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (level: number) => void }): Promise<{ transcript: string; confidence: number }>
+  listen(opts?: {
+    languageCode?: string
+    timeoutMs?: number
+    onLevel?: (level: number) => void
+    /** Subtítulo en vivo mientras la persona habla (best-effort, no todos los navegadores lo soportan). */
+    onInterim?: (text: string) => void
+  }): Promise<{ transcript: string; confidence: number }>
   cancelListen(): void
   supportsSpeechRecognition(): boolean
 }
@@ -135,7 +141,14 @@ async function webSpeechSpeak(text: string, opts?: { languageCode?: string }): P
   }
 }
 
-async function recordAudio(timeoutMs: number, onLevel?: (l: number) => void): Promise<Blob> {
+// Detección de silencio: en vez de grabar siempre el máximo de tiempo, cortamos
+// apenas la persona deja de hablar (con un pequeño margen), para que cada turno
+// se sienta instantáneo en vez de dejar "aire muerto" de varios segundos.
+const SPEECH_THRESHOLD = 0.055
+const SILENCE_HOLD_MS = 1000
+const MIN_RECORD_MS = 450
+
+async function recordAudio(maxMs: number, onLevel?: (l: number) => void): Promise<Blob> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
   activeStream = stream
   cancelRequested = false
@@ -147,17 +160,32 @@ async function recordAudio(timeoutMs: number, onLevel?: (l: number) => void): Pr
   source.connect(analyser)
   const data8 = new Uint8Array(analyser.frequencyBinCount)
   let raf = 0
-  const tick = () => {
-    analyser.getByteFrequencyData(data8)
-    const avg = data8.reduce((a, b) => a + b, 0) / data8.length / 255
-    onLevel?.(avg)
-    raf = requestAnimationFrame(tick)
-  }
-  raf = requestAnimationFrame(tick)
+  const startedAt = Date.now()
+  let hasSpoken = false
+  let lastLoudAt = startedAt
 
   const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
   const chunks: BlobPart[] = []
   recorder.ondataavailable = (e) => chunks.push(e.data)
+
+  const tick = () => {
+    analyser.getByteFrequencyData(data8)
+    const avg = data8.reduce((a, b) => a + b, 0) / data8.length / 255
+    onLevel?.(avg)
+    const now = Date.now()
+    if (avg >= SPEECH_THRESHOLD) {
+      hasSpoken = true
+      lastLoudAt = now
+    }
+    const elapsed = now - startedAt
+    const silentFor = now - lastLoudAt
+    if (elapsed >= MIN_RECORD_MS && ((hasSpoken && silentFor >= SILENCE_HOLD_MS) || elapsed >= maxMs)) {
+      if (recorder.state !== 'inactive') recorder.stop()
+      return
+    }
+    raf = requestAnimationFrame(tick)
+  }
+  raf = requestAnimationFrame(tick)
 
   return new Promise((resolve, reject) => {
     recorder.onstop = () => {
@@ -169,23 +197,60 @@ async function recordAudio(timeoutMs: number, onLevel?: (l: number) => void): Pr
       else resolve(new Blob(chunks, { type: 'audio/webm' }))
     }
     recorder.start()
-    setTimeout(() => {
-      if (recorder.state !== 'inactive') recorder.stop()
-    }, timeoutMs)
   })
 }
 
-async function googleListen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (l: number) => void }) {
-  const blob = await recordAudio(opts?.timeoutMs ?? 6000, opts?.onLevel)
-  const base64 = await blobToBase64(blob)
-  const res = await fetch(`${VOICE_SERVER_URL}/api/voice/stt`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ audioContent: base64, languageCode: opts?.languageCode ?? 'es-US', encoding: 'WEBM_OPUS', sampleRateHertz: 48000 }),
-  })
-  if (!res.ok) throw new Error('stt_failed')
-  const data = await res.json()
-  return { transcript: data.transcript as string, confidence: data.confidence as number }
+/** Subtítulos en vivo mientras se graba, usando Web Speech (best-effort, solo visual).
+ * La transcripción que realmente se envía a guardar sigue viniendo de ElevenLabs vía
+ * recordAudio()+STT, más precisa entre navegadores. Si el navegador no soporta
+ * reconocimiento de voz nativo, simplemente no hay subtítulo en vivo (no falla nada). */
+function startInterimCaptions(languageCode: string, onInterim: (text: string) => void) {
+  const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  if (!SpeechRecognitionCtor) return () => {}
+  const rec = new SpeechRecognitionCtor()
+  rec.lang = languageCode
+  rec.continuous = true
+  rec.interimResults = true
+  let finalText = ''
+  rec.onresult = (e: any) => {
+    let interim = ''
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const chunk = e.results[i][0].transcript
+      if (e.results[i].isFinal) finalText += chunk
+      else interim += chunk
+    }
+    onInterim((finalText + interim).trim())
+  }
+  rec.onerror = () => {}
+  try {
+    rec.start()
+  } catch {
+    return () => {}
+  }
+  return () => {
+    try {
+      rec.stop()
+    } catch {}
+  }
+}
+
+async function googleListen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (l: number) => void; onInterim?: (text: string) => void }) {
+  const lang = opts?.languageCode ?? 'es-US'
+  const stopCaptions = opts?.onInterim ? startInterimCaptions(lang, opts.onInterim) : () => {}
+  try {
+    const blob = await recordAudio(opts?.timeoutMs ?? 9000, opts?.onLevel)
+    const base64 = await blobToBase64(blob)
+    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/stt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioContent: base64, languageCode: lang, encoding: 'WEBM_OPUS', sampleRateHertz: 48000 }),
+    })
+    if (!res.ok) throw new Error('stt_failed')
+    const data = await res.json()
+    return { transcript: data.transcript as string, confidence: data.confidence as number }
+  } finally {
+    stopCaptions()
+  }
 }
 
 function webSpeechListen(opts?: { languageCode?: string; timeoutMs?: number }): Promise<{ transcript: string; confidence: number }> {

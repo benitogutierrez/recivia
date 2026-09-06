@@ -14,7 +14,7 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : process.env.VOICE_SER
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 // Voz por defecto (multilingüe, sirve para español). Cambia esto por el voice_id
 // que elijas en tu Voice Library de ElevenLabs: https://elevenlabs.io/app/voice-library
-const DEFAULT_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'CwhRBWXzGAHq8TQ4Fs17' // Roger (premade, funciona en el plan free)
+const DEFAULT_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'nVOH3KsergSg3CFWwAQm' // voz masculina 1 (ver src/lib/voice/elevenLabsVoices.ts)
 
 app.get('/api/voice/status', (_req, res) => {
   res.json({ configured: Boolean(ELEVENLABS_API_KEY) })
@@ -22,12 +22,13 @@ app.get('/api/voice/status', (_req, res) => {
 
 app.post('/api/voice/tts', async (req, res) => {
   if (!ELEVENLABS_API_KEY) return res.status(503).json({ error: 'ELEVENLABS_API_KEY no configurada en el servidor' })
-  const { text, ssml } = req.body ?? {}
+  const { text, ssml, voiceName } = req.body ?? {}
   const input = text || ssml
   if (!input) return res.status(400).json({ error: 'Falta "text" o "ssml"' })
+  const voiceId = voiceName || DEFAULT_VOICE_ID
 
   try {
-    const elRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${DEFAULT_VOICE_ID}`, {
+    const elRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'xi-api-key': ELEVENLABS_API_KEY, Accept: 'audio/mpeg' },
       body: JSON.stringify({

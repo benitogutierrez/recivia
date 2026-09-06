@@ -154,7 +154,7 @@ export type LandingMode = 'form' | 'voice'
 export interface VoiceAssistantConfig {
   enabled: boolean
   languageCode: string // ej. 'es-US', 'es-CL', 'en-US'
-  voiceName: string // nombre de voz de Google Cloud TTS, ej. 'es-US-Neural2-B'
+  voiceName: string // voice_id de ElevenLabs, ver src/lib/voice/elevenLabsVoices.ts
   greeting: string
   askHostQuestion: string
   askNameQuestion: string

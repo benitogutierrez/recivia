@@ -75,7 +75,7 @@ function makeLanding(overrides: Partial<Landing> & { companyId: string; name: st
     voiceAssistant: {
       enabled: false,
       languageCode: 'es-US',
-      voiceName: 'es-US-Neural2-B',
+      voiceName: 'nVOH3KsergSg3CFWwAQm', // ver src/lib/voice/elevenLabsVoices.ts
       greeting: 'Hola, bienvenido a {{empresa.nombre}}.',
       askHostQuestion: '¿A quién vienes a visitar?',
       askNameQuestion: 'Perfecto. ¿Cuál es tu nombre?',
