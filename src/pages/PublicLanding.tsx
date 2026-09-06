@@ -5,7 +5,6 @@ import { companies as companiesService, landings as landingsService, submissions
 import BlockRenderer from '../components/BlockRenderer'
 import FormRenderer from '../components/FormRenderer'
 import VoiceAssistant from '../components/voice/VoiceAssistant'
-import SoundWave from '../components/voice/SoundWave'
 import { resolveVariables } from '../lib/utils'
 
 export default function PublicLanding() {
@@ -64,38 +63,36 @@ export default function PublicLanding() {
       </nav>
 
       {l.mode === 'voice' ? (
-        <section className="relative overflow-hidden px-[6%] py-20">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-fuchsia-50/70 to-sky-50" />
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -left-24 -top-24 h-80 w-80 animate-pulse-slow rounded-full bg-violet-200/60 blur-3xl" />
-            <div className="absolute right-[-4rem] top-10 h-96 w-96 animate-pulse-slow rounded-full bg-sky-200/60 blur-3xl [animation-delay:1s]" />
-            <div className="absolute bottom-[-3rem] left-1/3 h-72 w-72 animate-pulse-slow rounded-full bg-pink-200/50 blur-3xl [animation-delay:2s]" />
-            <SoundWave className="absolute inset-x-0 top-1/2 h-40 w-full -translate-y-1/2 opacity-[0.35]" />
+        <section className="relative flex min-h-[calc(100vh-72px)] flex-col items-center overflow-hidden bg-white px-6 py-10">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white via-white to-indigo-50/40" />
+
+          <div className="relative z-10 mx-auto max-w-md text-center">
+            {beforeForm.length > 0 ? (
+              <div className="[&_h2]:text-[19px] [&_h2]:font-bold [&_p]:text-[13px] [&_p]:text-ink-faint">
+                {beforeForm.map((b) => (
+                  <BlockRenderer key={b.id} block={b} landing={l} company={company} />
+                ))}
+              </div>
+            ) : (
+              <>
+                <h1 className="text-[19px] font-bold text-ink">{l.hero.title}</h1>
+                <p className="mt-1 text-[13px] text-ink-faint">{l.hero.text}</p>
+              </>
+            )}
           </div>
 
-          <div className="relative mx-auto max-w-xl text-center">
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.15em] shadow-soft backdrop-blur"
-              style={{ color: l.theme.primary }}
-            >
-              {l.hero.eyebrow}
-            </span>
-            <h1 className="mt-5 font-display text-[clamp(28px,4.2vw,44px)] font-bold leading-[1.1] tracking-tight text-ink">{l.hero.title}</h1>
-            <p className="mx-auto mt-4 max-w-md text-[14.5px] leading-relaxed text-ink-soft">{l.hero.text}</p>
-
-            <div className="mt-10 rounded-[28px] border border-white/70 bg-white/80 p-7 shadow-pop backdrop-blur-xl sm:p-9">
-              {!sent ? (
-                <VoiceAssistant landing={l} company={company} onComplete={(values) => submissionsService.submitPublic(l.id, values)} />
-              ) : (
-                <div className="py-6 text-center">
-                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-mint-50 text-mint-600">
-                    <CheckCircle2 size={28} />
-                  </div>
-                  <h2 className="mt-4 text-[19px] font-bold text-ink">¡Solicitud recibida!</h2>
-                  <p className="mt-2 text-[13px] text-ink-faint">{resolveVariables(l.automation.actions.confirmationMessage, ctx)}</p>
+          <div className="relative z-10 flex flex-1 flex-col items-center justify-center">
+            {!sent ? (
+              <VoiceAssistant landing={l} company={company} onComplete={(values) => submissionsService.submitPublic(l.id, values)} />
+            ) : (
+              <div className="text-center">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-mint-50 text-mint-600">
+                  <CheckCircle2 size={28} />
                 </div>
-              )}
-            </div>
+                <h2 className="mt-4 text-[19px] font-bold text-ink">¡Solicitud recibida!</h2>
+                <p className="mt-2 text-[13px] text-ink-faint">{resolveVariables(l.automation.actions.confirmationMessage, ctx)}</p>
+              </div>
+            )}
           </div>
         </section>
       ) : (

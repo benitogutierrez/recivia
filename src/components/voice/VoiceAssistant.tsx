@@ -60,8 +60,15 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
       return { transcript: transcript.trim(), confident: transcript.trim().length > 0 && confidence >= 0.55 }
     } catch (err) {
       setLevel(0)
-      if ((err as Error).message === 'unsupported') dispatch({ type: 'UNSUPPORTED' })
-      else dispatch({ type: 'PERMISSION_DENIED' })
+      // eslint-disable-next-line no-console
+      console.error('[voice] error al escuchar:', err)
+      const message = (err as Error).message
+      if (message === 'unsupported') {
+        dispatch({ type: 'UNSUPPORTED' })
+      } else {
+        setCaption({ speaker: 'assistant', text: message === 'permission' ? 'No pude acceder al micrófono.' : 'Hubo un problema escuchando.' })
+        dispatch({ type: 'PERMISSION_DENIED' })
+      }
       return { transcript: '', confident: false }
     }
   }
@@ -175,22 +182,39 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
     )
   }
 
-  return (
-    <div className="flex flex-col items-center py-4">
-      <AssistantAvatar mode={visualMode} level={level} primary={landing.theme.primary} />
+  async function startConversation() {
+    // Pedimos el micrófono AQUÍ, como resultado directo del clic. Si lo dejamos
+    // para más tarde (después del saludo hablado), algunos navegadores ya no
+    // consideran la acción "reciente" y bloquean el permiso en silencio — eso
+    // hacía que pareciera que el asistente "no escuchaba" cuando en realidad
+    // nunca llegó a pedir el micrófono.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((t) => t.stop())
+      dispatch({ type: 'START' })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[voice] permiso de micrófono denegado:', err)
+      dispatch({ type: 'PERMISSION_DENIED' })
+    }
+  }
 
-      <div className="mt-2 w-full max-w-sm">
+  return (
+    <div className="flex flex-col items-center">
+      <button
+        onClick={snap.state === 'idle' ? startConversation : undefined}
+        className={snap.state === 'idle' ? 'cursor-pointer transition hover:scale-[1.03]' : 'cursor-default'}
+        aria-label="Toca para hablar con el asistente"
+      >
+        <AssistantAvatar mode={visualMode} level={level} primary={landing.theme.primary} />
+      </button>
+
+      <div className="mt-6 w-full max-w-sm">
         <TranscriptCaption speaker={caption.speaker} text={caption.text} />
       </div>
 
       {snap.state === 'idle' && (
-        <button
-          onClick={() => dispatch({ type: 'START' })}
-          className="mt-2 rounded-xl px-6 py-3.5 text-[14px] font-bold text-white shadow-pop transition hover:opacity-90"
-          style={{ background: landing.theme.primary }}
-        >
-          Toca para hablar con el asistente
-        </button>
+        <p className="mt-1 text-[13px] font-semibold text-ink-faint">Toca el círculo para hablar con el asistente</p>
       )}
 
       {snap.state === 'done' && (
