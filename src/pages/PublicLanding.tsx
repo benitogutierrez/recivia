@@ -67,6 +67,12 @@ export default function PublicLanding() {
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white via-white to-indigo-50/40" />
 
           <div className="relative z-10 mx-auto max-w-md text-center">
+            <div
+              className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full text-2xl shadow-soft"
+              style={{ background: l.theme.bg }}
+            >
+              {company.logo}
+            </div>
             {beforeForm.length > 0 ? (
               <div className="[&_h2]:text-[19px] [&_h2]:font-bold [&_p]:text-[13px] [&_p]:text-ink-faint">
                 {beforeForm.map((b) => (

@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { Keyboard, RotateCcw } from 'lucide-react'
 import type { Landing, Company } from '../../types'
 import { resolveVariables } from '../../lib/utils'
-import { voiceEngine, primeVoiceEngine } from '../../lib/voice/googleVoiceEngine'
+import { voiceEngine, primeVoiceEngine, prefetchSpeech } from '../../lib/voice/googleVoiceEngine'
 import {
   transition,
   initialSnapshot,
@@ -39,6 +39,19 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
 
   useEffect(() => {
     return () => voiceEngine.cancelListen()
+  }, [])
+
+  // Precargamos el audio de las frases fijas del guion apenas se monta la
+  // landing — mucho antes de que la persona toque el orbe — para que cuando
+  // le toque sonar cada una, se reproduzca al instante en vez de esperar la
+  // respuesta de ElevenLabs en ese momento. La despedida no se precarga
+  // porque su texto depende del nombre/anfitrión que aún no conocemos.
+  useEffect(() => {
+    const opts = { languageCode: cfg.languageCode, voiceName: cfg.voiceName }
+    prefetchSpeech(resolveVariables(cfg.greeting, ctx), opts)
+    prefetchSpeech(resolveVariables(cfg.askHostQuestion, ctx), opts)
+    prefetchSpeech(resolveVariables(cfg.askNameQuestion, ctx), opts)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function say(text: string) {

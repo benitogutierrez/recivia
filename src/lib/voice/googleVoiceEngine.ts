@@ -64,15 +64,48 @@ export async function primeVoiceEngine() {
   }
 }
 
+// Cache en memoria de audio ya sintetizado, por texto+voz. Las frases fijas del
+// guion (saludo, preguntas) se conocen de antemano, así que las precargamos en
+// cuanto se monta el asistente — mucho antes de que la persona toque el orbe —
+// y para cuando le toca sonar, ya está lista: cero espera de red en ese momento.
+const speechCache = new Map<string, Promise<string>>()
+
+function cacheKey(text: string, opts?: { languageCode?: string; voiceName?: string }) {
+  return `${opts?.voiceName ?? ''}|${opts?.languageCode ?? 'es-US'}|${text}`
+}
+
+async function fetchAudioContent(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<string> {
+  const key = cacheKey(text, opts)
+  const cached = speechCache.get(key)
+  if (cached) return cached
+  const promise = (async () => {
+    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, languageCode: opts?.languageCode ?? 'es-US', voiceName: opts?.voiceName }),
+    })
+    if (!res.ok) throw new Error('tts_failed')
+    const data = await res.json()
+    return data.audioContent as string
+  })()
+  speechCache.set(key, promise)
+  promise.catch(() => speechCache.delete(key)) // no cachear fallos
+  return promise
+}
+
+/** Descarga y cachea el audio de una frase por adelantado, sin reproducirla.
+ * Falla en silencio: si no hay conexión con ElevenLabs, simplemente no queda
+ * cacheado y se pedirá normalmente (o caerá al TTS nativo) cuando toque hablarla. */
+export async function prefetchSpeech(text: string, opts?: { languageCode?: string; voiceName?: string }) {
+  if (!text || !(await checkElevenLabsAvailable())) return
+  try {
+    await fetchAudioContent(text, opts)
+  } catch {}
+}
+
 async function elevenLabsSpeak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle> {
-  const res = await fetch(`${VOICE_SERVER_URL}/api/voice/tts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, languageCode: opts?.languageCode ?? 'es-US', voiceName: opts?.voiceName }),
-  })
-  if (!res.ok) throw new Error('tts_failed')
-  const data = await res.json()
-  const blob = base64ToBlob(data.audioContent, 'audio/mp3')
+  const audioContent = await fetchAudioContent(text, opts)
+  const blob = base64ToBlob(audioContent, 'audio/mp3')
   const url = URL.createObjectURL(blob)
   const audio = new Audio(url)
 
