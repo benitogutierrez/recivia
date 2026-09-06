@@ -1,6 +1,12 @@
-// Motor de voz: usa el proxy de Google Cloud (server/index.js) para TTS/STT.
+// Motor de voz: usa el proxy de voz (server/index.js, hoy con ElevenLabs) para TTS/STT.
 // Si el proxy no está configurado o la llamada falla, cae automáticamente
 // a las Web Speech APIs nativas del navegador para que la landing nunca se bloquee.
+//
+// El backend de voz se despliega por separado del frontend (Cloudflare Pages no
+// puede proxiar `_redirects` hacia dominios externos), así que en producción se
+// llama directo a esa URL vía CORS. En local, VITE_VOICE_SERVER_URL queda vacío
+// y se usa el proxy de Vite (ver vite.config.ts) hacia localhost.
+const VOICE_SERVER_URL = import.meta.env.VITE_VOICE_SERVER_URL ?? ''
 
 export interface SpeakHandle {
   stop: () => void
@@ -39,7 +45,7 @@ let activeStream: MediaStream | null = null
 let cancelRequested = false
 
 async function googleSpeak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle> {
-  const res = await fetch('/api/voice/tts', {
+  const res = await fetch(`${VOICE_SERVER_URL}/api/voice/tts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, languageCode: opts?.languageCode ?? 'es-US', voiceName: opts?.voiceName }),
@@ -172,7 +178,7 @@ async function recordAudio(timeoutMs: number, onLevel?: (l: number) => void): Pr
 async function googleListen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (l: number) => void }) {
   const blob = await recordAudio(opts?.timeoutMs ?? 6000, opts?.onLevel)
   const base64 = await blobToBase64(blob)
-  const res = await fetch('/api/voice/stt', {
+  const res = await fetch(`${VOICE_SERVER_URL}/api/voice/stt`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ audioContent: base64, languageCode: opts?.languageCode ?? 'es-US', encoding: 'WEBM_OPUS', sampleRateHertz: 48000 }),
@@ -209,7 +215,7 @@ let googleAvailable: boolean | null = null
 async function checkGoogleAvailable() {
   if (googleAvailable !== null) return googleAvailable
   try {
-    const res = await fetch('/api/voice/status')
+    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/status`)
     const data = await res.json()
     googleAvailable = Boolean(data.configured)
   } catch {
