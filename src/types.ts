@@ -148,6 +148,20 @@ export interface AutomationConfig {
   future: string[] // integraciones planeadas: webhook, api, sheets, crm, slack, teams, sms
 }
 
+// ---------- Asistente de voz ----------
+export type LandingMode = 'form' | 'voice'
+
+export interface VoiceAssistantConfig {
+  enabled: boolean
+  languageCode: string // ej. 'es-US', 'es-CL', 'en-US'
+  voiceName: string // nombre de voz de Google Cloud TTS, ej. 'es-US-Neural2-B'
+  greeting: string
+  askHostQuestion: string
+  askNameQuestion: string
+  farewell: string
+  fallbackToForm: boolean // si no hay micrófono/permiso/soporte, cae al formulario clásico
+}
+
 // ---------- Landings ----------
 export type LandingStatus = 'Borrador' | 'Publicada' | 'Despublicada'
 
@@ -173,6 +187,8 @@ export interface Landing {
   createdAt: string
   updatedAt: string
   publishedAt?: string
+  mode: LandingMode
+  voiceAssistant: VoiceAssistantConfig
   theme: { primary: string; bg: string; themeId: string }
   hero: { eyebrow: string; title: string; text: string; button: string }
   blocks: PageBlock[]

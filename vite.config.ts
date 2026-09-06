@@ -5,5 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: process.env.PORT ? Number(process.env.PORT) : 5173,
+    proxy: {
+      '/api/voice': process.env.VOICE_SERVER_URL || 'http://localhost:8787',
+    },
   },
 })

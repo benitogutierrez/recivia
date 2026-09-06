@@ -1,4 +1,4 @@
-import type { Landing, LandingStatus } from '../types'
+import type { Landing, LandingMode, LandingStatus, VoiceAssistantConfig } from '../types'
 import { makeField, slugify, stamp, uuid } from '../lib/utils'
 import { getDb, updateDb, makeLanding, THEMES } from './store'
 import * as templatesService from './templates'
@@ -136,6 +136,19 @@ export function restoreVersion(id: string, version: number) {
     ),
   }))
   audit.log(`Restauró versión v${version} de`, l.name, { landingId: id, companyId: l.companyId })
+}
+
+export function setMode(id: string, mode: LandingMode) {
+  updateDb((db) => ({ ...db, landings: db.landings.map((l) => (l.id === id ? { ...l, mode, updatedAt: stamp() } : l)) }))
+  const l = get(id)
+  audit.log(mode === 'voice' ? 'Activó el asistente de voz en' : 'Volvió al formulario clásico en', l?.name ?? id, { landingId: id })
+}
+
+export function updateVoiceAssistant(id: string, patch: Partial<VoiceAssistantConfig>) {
+  updateDb((db) => ({
+    ...db,
+    landings: db.landings.map((l) => (l.id === id ? { ...l, voiceAssistant: { ...l.voiceAssistant, ...patch }, updatedAt: stamp() } : l)),
+  }))
 }
 
 export function updateHero(id: string, hero: Partial<Landing['hero']>) {

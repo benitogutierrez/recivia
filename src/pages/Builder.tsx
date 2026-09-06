@@ -21,6 +21,7 @@ import {
   EyeOff,
   X,
   FileText,
+  Mic,
 } from 'lucide-react'
 import { companies as companiesService, landings as landingsService, pageBuilder, useDb } from '../services'
 import { useToast } from '../lib/toast'
@@ -150,6 +151,18 @@ export default function Builder() {
           </button>
           <button onClick={() => setShowVersions(true)} className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint transition hover:bg-surface-muted" title="Versiones">
             <History size={15} />
+          </button>
+          <button
+            onClick={() => {
+              landingsService.setMode(l.id, l.mode === 'voice' ? 'form' : 'voice')
+              showToast(l.mode === 'voice' ? 'Modo formulario activado' : 'Modo asistente de voz activado')
+            }}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-bold transition ${
+              l.mode === 'voice' ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-line bg-white text-ink-soft hover:bg-surface-muted'
+            }`}
+            title="Alternar entre formulario clásico y asistente de voz"
+          >
+            <Mic size={13} /> {l.mode === 'voice' ? 'Asistente de voz' : 'Activar asistente de voz'}
           </button>
           <button
             onClick={() => navigate(`/formulario/${l.id}`)}

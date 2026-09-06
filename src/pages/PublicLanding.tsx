@@ -4,6 +4,7 @@ import { CheckCircle2, ShieldCheck, Sparkles, Settings } from 'lucide-react'
 import { companies as companiesService, landings as landingsService, submissions as submissionsService, useDb } from '../services'
 import BlockRenderer from '../components/BlockRenderer'
 import FormRenderer from '../components/FormRenderer'
+import VoiceAssistant from '../components/voice/VoiceAssistant'
 import { resolveVariables } from '../lib/utils'
 
 export default function PublicLanding() {
@@ -81,7 +82,9 @@ export default function PublicLanding() {
         </div>
 
         <div className="rounded-2xl bg-white p-7 shadow-pop">
-          {!sent ? (
+          {!sent && l.mode === 'voice' ? (
+            <VoiceAssistant landing={l} company={company} onComplete={(values) => submissionsService.submitPublic(l.id, values)} />
+          ) : !sent ? (
             <>
               <h2 className="text-[19px] font-bold text-ink">Solicita información</h2>
               <p className="mt-1 text-[12.5px] text-ink-faint">Completa tus datos y nuestro equipo se pondrá en contacto.</p>

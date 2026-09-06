@@ -71,6 +71,17 @@ function makeLanding(overrides: Partial<Landing> & { companyId: string; name: st
     templateId: t.id,
     createdAt: now,
     updatedAt: now,
+    mode: 'form',
+    voiceAssistant: {
+      enabled: false,
+      languageCode: 'es-US',
+      voiceName: 'es-US-Neural2-B',
+      greeting: 'Hola, bienvenido a {{empresa.nombre}}.',
+      askHostQuestion: '¿A quién vienes a visitar?',
+      askNameQuestion: 'Perfecto. ¿Cuál es tu nombre?',
+      farewell: 'Gracias {{form.visitante}}. Ya avisamos a {{form.anfitrion}} de tu llegada, por favor toma asiento.',
+      fallbackToForm: true,
+    },
     theme: { primary: THEMES[0].primary, bg: THEMES[0].bg, themeId: THEMES[0].id },
     hero: {
       eyebrow: t.cat,
@@ -220,7 +231,7 @@ export const useRawStore = create<RawStore>()(
       db: seed(),
       set: (fn) => set((s) => ({ db: fn(s.db) })),
     }),
-    { name: 'recivia-db-v2' },
+    { name: 'recivia-db-v3' },
   ),
 )
 
