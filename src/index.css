@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-surface-sunk text-ink font-sans text-[14px] antialiased;
+  }
+  ::selection {
+    @apply bg-brand-200/70 text-brand-900;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: theme('colors.line.DEFAULT');
+    border-radius: 999px;
+  }
+  .bg-noise {
+    background-image: radial-gradient(theme('colors.line.DEFAULT') 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+  .bg-grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+}
