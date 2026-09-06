@@ -2,8 +2,15 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { Keyboard, RotateCcw } from 'lucide-react'
 import type { Landing, Company } from '../../types'
 import { resolveVariables } from '../../lib/utils'
-import { voiceEngine } from '../../lib/voice/googleVoiceEngine'
-import { transition, initialSnapshot, parseYesNo, type ConversationSnapshot, type ConversationEvent } from '../../lib/voice/conversationMachine'
+import { voiceEngine, primeVoiceEngine } from '../../lib/voice/googleVoiceEngine'
+import {
+  transition,
+  initialSnapshot,
+  extractHostName,
+  extractPersonName,
+  type ConversationSnapshot,
+  type ConversationEvent,
+} from '../../lib/voice/conversationMachine'
 import AssistantAvatar from './AssistantAvatar'
 import TranscriptCaption from './TranscriptCaption'
 import FormRenderer from '../FormRenderer'
@@ -93,15 +100,7 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
         }
         case 'listening_host': {
           const { transcript, confident } = await hear()
-          if (!cancelled) dispatch({ type: 'HEARD_HOST', value: transcript, confident })
-          return
-        }
-        case 'confirm_host': {
-          await say(`Entendido, vienes a visitar a ${snap.data.host}. ¿Es correcto?`)
-          const { transcript } = await hear()
-          const yn = parseYesNo(transcript)
-          if (cancelled) return
-          dispatch({ type: yn === false ? 'REJECTED_HOST' : 'CONFIRMED_HOST' })
+          if (!cancelled) dispatch({ type: 'HEARD_HOST', value: transcript ? extractHostName(transcript) : transcript, confident })
           return
         }
         case 'ask_name': {
@@ -111,15 +110,7 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
         }
         case 'listening_name': {
           const { transcript, confident } = await hear()
-          if (!cancelled) dispatch({ type: 'HEARD_NAME', value: transcript, confident })
-          return
-        }
-        case 'confirm_name': {
-          await say(`Perfecto, ${snap.data.name}. ¿Es correcto?`)
-          const { transcript } = await hear()
-          const yn = parseYesNo(transcript)
-          if (cancelled) return
-          dispatch({ type: yn === false ? 'REJECTED_NAME' : 'CONFIRMED_NAME' })
+          if (!cancelled) dispatch({ type: 'HEARD_NAME', value: transcript ? extractPersonName(transcript) : transcript, confident })
           return
         }
         case 'processing': {
@@ -191,6 +182,7 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       stream.getTracks().forEach((t) => t.stop())
+      await primeVoiceEngine() // reanuda el AudioContext compartido en este mismo gesto
       dispatch({ type: 'START' })
     } catch (err) {
       // eslint-disable-next-line no-console

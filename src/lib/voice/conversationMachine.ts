@@ -3,10 +3,8 @@ export type ConversationState =
   | 'greeting'
   | 'ask_host'
   | 'listening_host'
-  | 'confirm_host'
   | 'ask_name'
   | 'listening_name'
-  | 'confirm_name'
   | 'processing'
   | 'farewell'
   | 'done'
@@ -27,14 +25,8 @@ export type ConversationEvent =
   | { type: 'SPOKEN_GREETING' }
   | { type: 'SPOKEN_ASK_HOST' }
   | { type: 'HEARD_HOST'; value: string; confident: boolean }
-  | { type: 'MISHEARD_HOST' }
-  | { type: 'CONFIRMED_HOST' }
-  | { type: 'REJECTED_HOST' }
   | { type: 'SPOKEN_ASK_NAME' }
   | { type: 'HEARD_NAME'; value: string; confident: boolean }
-  | { type: 'MISHEARD_NAME' }
-  | { type: 'CONFIRMED_NAME' }
-  | { type: 'REJECTED_NAME' }
   | { type: 'SAVED' }
   | { type: 'SPOKEN_FAREWELL' }
   | { type: 'RESET' }
@@ -74,11 +66,9 @@ export function transition(snap: ConversationSnapshot, event: ConversationEvent)
         if (data.retries >= MAX_RETRIES) return { state: 'ask_name', data: { ...data, host: event.value || 'recepción', retries: 0 } }
         return { state: 'ask_host', data: { ...data, retries: data.retries + 1 } }
       }
-      return { state: 'confirm_host', data: { ...data, host: event.value, retries: 0 } }
-    case 'CONFIRMED_HOST':
-      return state === 'confirm_host' ? { state: 'ask_name', data } : snap
-    case 'REJECTED_HOST':
-      return state === 'confirm_host' ? { state: 'ask_host', data: { ...data, host: '' } } : snap
+      // Sin paso de confirmación: se avanza directo, como en una conversación real
+      // en vez de verificar cada respuesta ("¿es correcto?"), que se sentía lento y robótico.
+      return { state: 'ask_name', data: { ...data, host: event.value, retries: 0 } }
 
     case 'SPOKEN_ASK_NAME':
       return state === 'ask_name' ? { state: 'listening_name', data } : snap
@@ -88,11 +78,7 @@ export function transition(snap: ConversationSnapshot, event: ConversationEvent)
         if (data.retries >= MAX_RETRIES) return { state: 'processing', data: { ...data, name: event.value || 'Visitante', retries: 0 } }
         return { state: 'ask_name', data: { ...data, retries: data.retries + 1 } }
       }
-      return { state: 'confirm_name', data: { ...data, name: event.value, retries: 0 } }
-    case 'CONFIRMED_NAME':
-      return state === 'confirm_name' ? { state: 'processing', data } : snap
-    case 'REJECTED_NAME':
-      return state === 'confirm_name' ? { state: 'ask_name', data: { ...data, name: '' } } : snap
+      return { state: 'processing', data: { ...data, name: event.value, retries: 0 } }
 
     case 'SAVED':
       return state === 'processing' ? { state: 'farewell', data } : snap
@@ -113,4 +99,64 @@ export function parseYesNo(text: string): boolean | null {
   if (/^(s[ií]|correcto|exacto|as[ií] es|claro|dale)/.test(t)) return true
   if (/^(no|incorrecto|para nada|negativo)/.test(t)) return false
   return null
+}
+
+// La gente no responde con solo un nombre — dice frases completas como
+// "Hola, vengo a visitar a Pedro Pascal" o "Me llamo Juan Pérez". Esto quita
+// saludos y frases de cortesía comunes al inicio para quedarnos con el nombre.
+const GREETING_PREFIX = /^(hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|qu[eé]\s+tal|oye|disculpa|perd[oó]n|por\s+favor)[,.\s]+/i
+
+const HOST_PREFIXES = [
+  /^(vengo|ven[ií]a|vine|voy)\s+(a|para)\s+visitar\s+a\s+/i,
+  /^vine\s+a\s+ver\s+a\s+/i,
+  /^(quiero|quisiera|necesito)\s+ver\s+a\s+/i,
+  /^(busco|estoy\s+buscando)\s+a\s+/i,
+  /^(necesito|quiero)\s+hablar\s+con\s+/i,
+  /^tengo\s+(una\s+)?(reuni[oó]n|cita)\s+con\s+/i,
+  /^visito\s+a\s+/i,
+  /^(para|a)\s+ver\s+a\s+/i,
+  /^con\s+/i,
+]
+
+const NAME_PREFIXES = [/^(mi\s+nombre\s+es|me\s+llamo|yo\s+soy|soy)\s+/i]
+
+function titleCase(s: string): string {
+  return s
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w[0]?.toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function stripPrefixes(raw: string, prefixes: RegExp[]): string {
+  let text = raw.trim().replace(/[.!¡¿?]+$/g, '')
+  let changed = true
+  while (changed) {
+    changed = false
+    const withoutGreeting = text.replace(GREETING_PREFIX, '').trim()
+    if (withoutGreeting !== text) {
+      text = withoutGreeting
+      changed = true
+    }
+    for (const p of prefixes) {
+      const next = text.replace(p, '').trim()
+      if (next !== text) {
+        text = next
+        changed = true
+      }
+    }
+  }
+  return text
+}
+
+/** Extrae a quién viene a visitar desde una respuesta hablada completa. */
+export function extractHostName(text: string): string {
+  const cleaned = stripPrefixes(text, HOST_PREFIXES)
+  return titleCase(cleaned || text)
+}
+
+/** Extrae el nombre propio desde una respuesta hablada completa. */
+export function extractPersonName(text: string): string {
+  const cleaned = stripPrefixes(text, NAME_PREFIXES)
+  return titleCase(cleaned || text)
 }

@@ -43,6 +43,27 @@ let activeStream: MediaStream | null = null
 let activeRecognition: any = null
 let cancelRequested = false
 
+// Un solo AudioContext reutilizado para toda la conversación. Crear uno nuevo
+// por cada frase que dice el asistente es lo que causaba que el audio se
+// cortara o sonara con retraso: los navegadores crean el AudioContext
+// "suspendido" salvo que esté directamente ligado a un gesto reciente del
+// usuario, y una vez pasado el primer intercambio, cada nuevo contexto nacía
+// suspendido. `primeVoiceEngine()` lo crea y lo reanuda una sola vez, en el
+// mismo clic que pide el permiso del micrófono.
+let sharedAudioCtx: AudioContext | null = null
+function getAudioContext(): AudioContext {
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') sharedAudioCtx = new AudioContext()
+  return sharedAudioCtx
+}
+export async function primeVoiceEngine() {
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume()
+    } catch {}
+  }
+}
+
 async function elevenLabsSpeak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle> {
   const res = await fetch(`${VOICE_SERVER_URL}/api/voice/tts`, {
     method: 'POST',
@@ -55,7 +76,8 @@ async function elevenLabsSpeak(text: string, opts?: { languageCode?: string; voi
   const url = URL.createObjectURL(blob)
   const audio = new Audio(url)
 
-  const ctx = new AudioContext()
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
   const source = ctx.createMediaElementSource(audio)
   const analyser = ctx.createAnalyser()
   analyser.fftSize = 256
@@ -76,16 +98,22 @@ async function elevenLabsSpeak(text: string, opts?: { languageCode?: string; voi
     audio.onended = () => {
       cancelAnimationFrame(raf)
       URL.revokeObjectURL(url)
-      ctx.close()
+      source.disconnect()
+      analyser.disconnect()
       resolve()
     }
     audio.onerror = () => {
       cancelAnimationFrame(raf)
+      source.disconnect()
+      analyser.disconnect()
       resolve()
     }
   })
 
-  audio.play()
+  await audio.play().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[voice] no se pudo reproducir el audio:', err)
+  })
   raf = requestAnimationFrame(tick)
 
   return {
