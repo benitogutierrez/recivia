@@ -1,0 +1,4 @@
+# Proxy transparente: el frontend llama a rutas relativas (/api/voice/...)
+# y Cloudflare Pages las reenvía al backend de voz (Node/Express) en Render.
+# Si eliges otro nombre de servicio en Render, actualiza esta URL.
+/api/voice/*  https://recivia-voice.onrender.com/api/voice/:splat  200

@@ -8,7 +8,7 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '15mb' })) // el audio en base64 puede pesar varios MB
 
-const PORT = process.env.VOICE_SERVER_PORT ? Number(process.env.VOICE_SERVER_PORT) : 8787
+const PORT = process.env.PORT ? Number(process.env.PORT) : process.env.VOICE_SERVER_PORT ? Number(process.env.VOICE_SERVER_PORT) : 8787
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY
 
 app.get('/api/voice/status', (_req, res) => {
