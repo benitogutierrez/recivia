@@ -24,9 +24,12 @@ export type ConversationEvent =
   | { type: 'UNSUPPORTED' }
   | { type: 'SPOKEN_GREETING' }
   | { type: 'SPOKEN_ASK_HOST' }
-  | { type: 'HEARD_HOST'; value: string; confident: boolean }
   | { type: 'SPOKEN_ASK_NAME' }
-  | { type: 'HEARD_NAME'; value: string; confident: boolean }
+  // Único evento para cualquier turno de escucha: la persona puede mencionar
+  // el anfitrión, su nombre, ambos o ninguno en una sola frase y en cualquier
+  // orden — la máquina decide el siguiente paso según lo que ya se sepa en
+  // total, no según cuál pregunta se hizo.
+  | { type: 'EXTRACTED'; name: string | null; host: string | null }
   | { type: 'SAVED' }
   | { type: 'SPOKEN_FAREWELL' }
   | { type: 'RESET' }
@@ -60,25 +63,25 @@ export function transition(snap: ConversationSnapshot, event: ConversationEvent)
     case 'SPOKEN_ASK_HOST':
       return state === 'ask_host' ? { state: 'listening_host', data } : snap
 
-    case 'HEARD_HOST':
-      if (state !== 'listening_host') return snap
-      if (!event.value || !event.confident) {
-        if (data.retries >= MAX_RETRIES) return { state: 'ask_name', data: { ...data, host: event.value || 'recepción', retries: 0 } }
-        return { state: 'ask_host', data: { ...data, retries: data.retries + 1 } }
-      }
-      // Sin paso de confirmación: se avanza directo, como en una conversación real
-      // en vez de verificar cada respuesta ("¿es correcto?"), que se sentía lento y robótico.
-      return { state: 'ask_name', data: { ...data, host: event.value, retries: 0 } }
-
     case 'SPOKEN_ASK_NAME':
       return state === 'ask_name' ? { state: 'listening_name', data } : snap
-    case 'HEARD_NAME':
-      if (state !== 'listening_name') return snap
-      if (!event.value || !event.confident) {
-        if (data.retries >= MAX_RETRIES) return { state: 'processing', data: { ...data, name: event.value || 'Visitante', retries: 0 } }
-        return { state: 'ask_name', data: { ...data, retries: data.retries + 1 } }
+
+    case 'EXTRACTED': {
+      if (state !== 'listening_host' && state !== 'listening_name') return snap
+      const host = event.host || data.host
+      const name = event.name || data.name
+      // Sin paso de confirmación: se avanza directo, como en una conversación real,
+      // y si la persona mencionó ambos datos de una vez (en cualquier orden), se
+      // saltan las preguntas restantes en vez de volver a pedir lo que ya dijo.
+      if (host && name) return { state: 'processing', data: { host, name, retries: 0 } }
+      if (!host) {
+        if (data.retries >= MAX_RETRIES) return { state: 'ask_name', data: { host: 'recepción', name, retries: 0 } }
+        return { state: 'ask_host', data: { host, name, retries: data.retries + 1 } }
       }
-      return { state: 'processing', data: { ...data, name: event.value, retries: 0 } }
+      // hay anfitrión, falta el nombre
+      if (data.retries >= MAX_RETRIES) return { state: 'processing', data: { host, name: 'Visitante', retries: 0 } }
+      return { state: 'ask_name', data: { host, name, retries: data.retries + 1 } }
+    }
 
     case 'SAVED':
       return state === 'processing' ? { state: 'farewell', data } : snap

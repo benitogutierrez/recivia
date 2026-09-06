@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import { Keyboard, RotateCcw } from 'lucide-react'
 import type { Landing, Company } from '../../types'
 import { resolveVariables } from '../../lib/utils'
-import { voiceEngine, primeVoiceEngine, prefetchSpeech } from '../../lib/voice/googleVoiceEngine'
+import { voiceEngine, primeVoiceEngine, prefetchSpeech, extractFields } from '../../lib/voice/googleVoiceEngine'
 import {
   transition,
   initialSnapshot,
@@ -65,6 +65,21 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
     setLevel(0)
   }
 
+  /** Escucha un turno y entiende lo que se dijo: intenta primero con Claude
+   * (entiende frases completas en cualquier orden, y puede sacar el nombre Y
+   * el anfitrión de una sola respuesta); si no está configurado o falla, cae
+   * a las reglas de texto simples como respaldo. */
+  async function listenAndExtract(): Promise<{ name: string | null; host: string | null }> {
+    const { transcript, confident } = await hear()
+    if (!transcript) return { name: null, host: null }
+    const known = { name: snap.data.name || undefined, host: snap.data.host || undefined }
+    const understood = await extractFields(transcript, known)
+    if (understood) return understood
+    // Respaldo sin IA: solo podemos adivinar el campo que se estaba preguntando.
+    if (snap.state === 'listening_host') return { host: confident ? extractHostName(transcript) : null, name: null }
+    return { name: confident ? extractPersonName(transcript) : null, host: null }
+  }
+
   async function hear(): Promise<{ transcript: string; confident: boolean }> {
     setVisualMode('listening')
     setCaption({ speaker: 'user', text: 'Escuchando…' })
@@ -112,8 +127,8 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
           return
         }
         case 'listening_host': {
-          const { transcript, confident } = await hear()
-          if (!cancelled) dispatch({ type: 'HEARD_HOST', value: transcript ? extractHostName(transcript) : transcript, confident })
+          const { name, host } = await listenAndExtract()
+          if (!cancelled) dispatch({ type: 'EXTRACTED', name, host })
           return
         }
         case 'ask_name': {
@@ -122,8 +137,8 @@ export default function VoiceAssistant({ landing, company, onComplete }: Props) 
           return
         }
         case 'listening_name': {
-          const { transcript, confident } = await hear()
-          if (!cancelled) dispatch({ type: 'HEARD_NAME', value: transcript ? extractPersonName(transcript) : transcript, confident })
+          const { name, host } = await listenAndExtract()
+          if (!cancelled) dispatch({ type: 'EXTRACTED', name, host })
           return
         }
         case 'processing': {

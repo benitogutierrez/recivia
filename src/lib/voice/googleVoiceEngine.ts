@@ -62,6 +62,17 @@ export async function primeVoiceEngine() {
       await ctx.resume()
     } catch {}
   }
+  // "Despierta" la salida de audio del dispositivo con un buffer silencioso.
+  // El primer sonido de una sesión de navegador a veces sale con el comienzo
+  // recortado mientras el hardware de audio arranca; reproducir algo — aunque
+  // sea silencio — absorbe ese arranque antes de que suene el saludo real.
+  try {
+    const buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.connect(ctx.destination)
+    src.start(0)
+  } catch {}
 }
 
 // Cache en memoria de audio ya sintetizado, por texto+voz. Las frases fijas del
@@ -349,16 +360,57 @@ async function elevenLabsListen(opts?: { languageCode?: string; timeoutMs?: numb
 }
 
 let elevenLabsAvailable: boolean | null = null
-async function checkElevenLabsAvailable() {
-  if (elevenLabsAvailable !== null) return elevenLabsAvailable
-  try {
-    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/status`)
-    const data = await res.json()
-    elevenLabsAvailable = Boolean(data.configured)
-  } catch {
-    elevenLabsAvailable = false
+let extractAvailable: boolean | null = null
+let statusPromise: Promise<void> | null = null
+
+async function loadStatus() {
+  if (elevenLabsAvailable !== null) return
+  if (!statusPromise) {
+    statusPromise = fetch(`${VOICE_SERVER_URL}/api/voice/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        elevenLabsAvailable = Boolean(data.configured)
+        extractAvailable = Boolean(data.extract)
+      })
+      .catch(() => {
+        elevenLabsAvailable = false
+        extractAvailable = false
+      })
   }
-  return elevenLabsAvailable
+  await statusPromise
+}
+
+async function checkElevenLabsAvailable() {
+  await loadStatus()
+  return Boolean(elevenLabsAvailable)
+}
+
+async function checkExtractAvailable() {
+  await loadStatus()
+  return Boolean(extractAvailable)
+}
+
+/** Entiende una respuesta hablada completa con Claude en vez de reglas de texto:
+ * capta el nombre y/o el anfitrión sin importar el orden o la redacción, y
+ * puede sacar AMBOS de una sola frase aunque solo se haya preguntado por uno.
+ * Devuelve null si no está configurado o falla — quien la llama debe tener un
+ * respaldo (ver extractHostName/extractPersonName en conversationMachine.ts). */
+export async function extractFields(
+  utterance: string,
+  known: { name?: string; host?: string },
+): Promise<{ name: string | null; host: string | null } | null> {
+  if (!utterance || !(await checkExtractAvailable())) return null
+  try {
+    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ utterance, known }),
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
 }
 
 export const voiceEngine: VoiceEngine = {
