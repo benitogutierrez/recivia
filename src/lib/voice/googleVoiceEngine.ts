@@ -1,6 +1,10 @@
-// Motor de voz: usa el proxy de voz (server/index.js, hoy con ElevenLabs) para TTS/STT.
-// Si el proxy no está configurado o la llamada falla, cae automáticamente
-// a las Web Speech APIs nativas del navegador para que la landing nunca se bloquee.
+// Motor de voz: para ESCUCHAR (STT) usamos el reconocimiento de voz nativo del
+// navegador como método principal — tiene su propia detección de fin de habla,
+// probada por años en Chrome/Edge, y es instantáneo porque no hace ida y vuelta
+// a un servidor. El proxy de voz (server/index.js, ElevenLabs) queda como
+// respaldo solo para navegadores sin soporte nativo (ej. Firefox).
+// Para HABLAR (TTS) sí preferimos ElevenLabs por la calidad de voz, con
+// fallback a la síntesis nativa del navegador si el proxy falla.
 //
 // El backend de voz se despliega por separado del frontend (Cloudflare Pages no
 // puede proxiar `_redirects` hacia dominios externos), así que en producción se
@@ -28,18 +32,6 @@ export interface VoiceEngine {
   supportsSpeechRecognition(): boolean
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result as string
-      resolve(result.split(',')[1] ?? '')
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
-
 function base64ToBlob(base64: string, mime: string) {
   const bytes = atob(base64)
   const arr = new Uint8Array(bytes.length)
@@ -48,9 +40,10 @@ function base64ToBlob(base64: string, mime: string) {
 }
 
 let activeStream: MediaStream | null = null
+let activeRecognition: any = null
 let cancelRequested = false
 
-async function googleSpeak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle> {
+async function elevenLabsSpeak(text: string, opts?: { languageCode?: string; voiceName?: string }): Promise<SpeakHandle> {
   const res = await fetch(`${VOICE_SERVER_URL}/api/voice/tts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -141,14 +134,101 @@ async function webSpeechSpeak(text: string, opts?: { languageCode?: string }): P
   }
 }
 
-// Detección de silencio: en vez de grabar siempre el máximo de tiempo, cortamos
-// apenas la persona deja de hablar (con un pequeño margen), para que cada turno
-// se sienta instantáneo en vez de dejar "aire muerto" de varios segundos.
-const SPEECH_THRESHOLD = 0.055
-const SILENCE_HOLD_MS = 1000
-const MIN_RECORD_MS = 450
+function getSpeechRecognitionCtor(): any {
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+}
 
-async function recordAudio(maxMs: number, onLevel?: (l: number) => void): Promise<Blob> {
+/** Método principal para escuchar: reconocimiento nativo del navegador.
+ * Es rápido (nada de red) y su detección de "dejó de hablar" está afinada por
+ * el propio navegador, así que no necesitamos adivinar un umbral de volumen. */
+function webSpeechListen(opts?: {
+  languageCode?: string
+  timeoutMs?: number
+  onLevel?: (l: number) => void
+  onInterim?: (text: string) => void
+}): Promise<{ transcript: string; confidence: number }> {
+  return new Promise((resolve, reject) => {
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor()
+    if (!SpeechRecognitionCtor) return reject(new Error('unsupported'))
+    cancelRequested = false
+    const rec = new SpeechRecognitionCtor()
+    activeRecognition = rec
+    rec.lang = opts?.languageCode ?? 'es-US'
+    rec.interimResults = true
+    rec.maxAlternatives = 1
+    rec.continuous = false
+
+    let settled = false
+    let sawSpeech = false
+    const hardTimeout = setTimeout(() => {
+      if (!settled) rec.stop()
+    }, opts?.timeoutMs ?? 9000)
+
+    // Simula un nivel de amplitud (para el avatar) ya que Web Speech no lo expone.
+    let raf = 0
+    const pulse = () => {
+      opts?.onLevel?.(sawSpeech ? 0.35 + Math.random() * 0.4 : 0.08 + Math.random() * 0.08)
+      raf = requestAnimationFrame(pulse)
+    }
+    raf = requestAnimationFrame(pulse)
+
+    const cleanup = () => {
+      clearTimeout(hardTimeout)
+      cancelAnimationFrame(raf)
+      opts?.onLevel?.(0)
+      activeRecognition = null
+    }
+
+    rec.onspeechstart = () => {
+      sawSpeech = true
+    }
+    rec.onresult = (e: any) => {
+      let finalText = ''
+      let interim = ''
+      for (let i = 0; i < e.results.length; i++) {
+        const chunk = e.results[i][0].transcript
+        if (e.results[i].isFinal) finalText += chunk
+        else interim += chunk
+      }
+      opts?.onInterim?.((finalText + interim).trim())
+      if (finalText && !settled) {
+        settled = true
+        cleanup()
+        const conf = e.results[0]?.[0]?.confidence
+        resolve({ transcript: finalText.trim(), confidence: typeof conf === 'number' && conf > 0 ? conf : 0.9 })
+      }
+    }
+    rec.onerror = (e: any) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (cancelRequested) reject(new Error('cancelled'))
+      else if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') reject(new Error('permission'))
+      else if (e?.error === 'no-speech') resolve({ transcript: '', confidence: 0 })
+      else reject(new Error('recognition_error'))
+    }
+    rec.onend = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (cancelRequested) reject(new Error('cancelled'))
+      else resolve({ transcript: '', confidence: 0 })
+    }
+    try {
+      rec.start()
+    } catch {
+      cleanup()
+      reject(new Error('recognition_error'))
+    }
+  })
+}
+
+/** Respaldo cuando el navegador no tiene reconocimiento de voz nativo (ej. Firefox):
+ * graba con MediaRecorder y transcribe vía el proxy de ElevenLabs. Sin detección de
+ * silencio propia (eso resultó frágil: un ruido breve al inicio cortaba la
+ * grabación antes de que la persona alcanzara a hablar) — graba un tiempo fijo
+ * y razonable en su lugar. */
+async function recordAudioFixed(ms: number, onLevel?: (l: number) => void): Promise<Blob> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
   activeStream = stream
   cancelRequested = false
@@ -160,32 +240,17 @@ async function recordAudio(maxMs: number, onLevel?: (l: number) => void): Promis
   source.connect(analyser)
   const data8 = new Uint8Array(analyser.frequencyBinCount)
   let raf = 0
-  const startedAt = Date.now()
-  let hasSpoken = false
-  let lastLoudAt = startedAt
-
-  const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-  const chunks: BlobPart[] = []
-  recorder.ondataavailable = (e) => chunks.push(e.data)
-
   const tick = () => {
     analyser.getByteFrequencyData(data8)
     const avg = data8.reduce((a, b) => a + b, 0) / data8.length / 255
     onLevel?.(avg)
-    const now = Date.now()
-    if (avg >= SPEECH_THRESHOLD) {
-      hasSpoken = true
-      lastLoudAt = now
-    }
-    const elapsed = now - startedAt
-    const silentFor = now - lastLoudAt
-    if (elapsed >= MIN_RECORD_MS && ((hasSpoken && silentFor >= SILENCE_HOLD_MS) || elapsed >= maxMs)) {
-      if (recorder.state !== 'inactive') recorder.stop()
-      return
-    }
     raf = requestAnimationFrame(tick)
   }
   raf = requestAnimationFrame(tick)
+
+  const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+  const chunks: BlobPart[] = []
+  recorder.ondataavailable = (e) => chunks.push(e.data)
 
   return new Promise((resolve, reject) => {
     recorder.onstop = () => {
@@ -197,128 +262,81 @@ async function recordAudio(maxMs: number, onLevel?: (l: number) => void): Promis
       else resolve(new Blob(chunks, { type: 'audio/webm' }))
     }
     recorder.start()
+    setTimeout(() => {
+      if (recorder.state !== 'inactive') recorder.stop()
+    }, ms)
   })
 }
 
-/** Subtítulos en vivo mientras se graba, usando Web Speech (best-effort, solo visual).
- * La transcripción que realmente se envía a guardar sigue viniendo de ElevenLabs vía
- * recordAudio()+STT, más precisa entre navegadores. Si el navegador no soporta
- * reconocimiento de voz nativo, simplemente no hay subtítulo en vivo (no falla nada). */
-function startInterimCaptions(languageCode: string, onInterim: (text: string) => void) {
-  const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-  if (!SpeechRecognitionCtor) return () => {}
-  const rec = new SpeechRecognitionCtor()
-  rec.lang = languageCode
-  rec.continuous = true
-  rec.interimResults = true
-  let finalText = ''
-  rec.onresult = (e: any) => {
-    let interim = ''
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const chunk = e.results[i][0].transcript
-      if (e.results[i].isFinal) finalText += chunk
-      else interim += chunk
-    }
-    onInterim((finalText + interim).trim())
-  }
-  rec.onerror = () => {}
-  try {
-    rec.start()
-  } catch {
-    return () => {}
-  }
-  return () => {
-    try {
-      rec.stop()
-    } catch {}
-  }
-}
-
-async function googleListen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (l: number) => void; onInterim?: (text: string) => void }) {
+async function elevenLabsListen(opts?: { languageCode?: string; timeoutMs?: number; onLevel?: (l: number) => void }) {
   const lang = opts?.languageCode ?? 'es-US'
-  const stopCaptions = opts?.onInterim ? startInterimCaptions(lang, opts.onInterim) : () => {}
-  try {
-    const blob = await recordAudio(opts?.timeoutMs ?? 9000, opts?.onLevel)
-    const base64 = await blobToBase64(blob)
-    const res = await fetch(`${VOICE_SERVER_URL}/api/voice/stt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audioContent: base64, languageCode: lang, encoding: 'WEBM_OPUS', sampleRateHertz: 48000 }),
-    })
-    if (!res.ok) throw new Error('stt_failed')
-    const data = await res.json()
-    return { transcript: data.transcript as string, confidence: data.confidence as number }
-  } finally {
-    stopCaptions()
-  }
-}
-
-function webSpeechListen(opts?: { languageCode?: string; timeoutMs?: number }): Promise<{ transcript: string; confidence: number }> {
-  return new Promise((resolve, reject) => {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) return reject(new Error('unsupported'))
-    const rec = new SpeechRecognitionCtor()
-    rec.lang = opts?.languageCode ?? 'es-US'
-    rec.interimResults = false
-    rec.maxAlternatives = 1
-    const timeout = setTimeout(() => rec.stop(), opts?.timeoutMs ?? 6000)
-    rec.onresult = (e: any) => {
-      clearTimeout(timeout)
-      const alt = e.results[0][0]
-      resolve({ transcript: alt.transcript, confidence: alt.confidence ?? 0.8 })
-    }
-    rec.onerror = () => {
-      clearTimeout(timeout)
-      reject(new Error('recognition_error'))
-    }
-    rec.onend = () => clearTimeout(timeout)
-    rec.start()
+  const blob = await recordAudioFixed(opts?.timeoutMs ?? 6000, opts?.onLevel)
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1] ?? '')
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
   })
+  const res = await fetch(`${VOICE_SERVER_URL}/api/voice/stt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audioContent: base64, languageCode: lang }),
+  })
+  if (!res.ok) throw new Error('stt_failed')
+  const data = await res.json()
+  return { transcript: data.transcript as string, confidence: data.confidence as number }
 }
 
-let googleAvailable: boolean | null = null
-async function checkGoogleAvailable() {
-  if (googleAvailable !== null) return googleAvailable
+let elevenLabsAvailable: boolean | null = null
+async function checkElevenLabsAvailable() {
+  if (elevenLabsAvailable !== null) return elevenLabsAvailable
   try {
     const res = await fetch(`${VOICE_SERVER_URL}/api/voice/status`)
     const data = await res.json()
-    googleAvailable = Boolean(data.configured)
+    elevenLabsAvailable = Boolean(data.configured)
   } catch {
-    googleAvailable = false
+    elevenLabsAvailable = false
   }
-  return googleAvailable
+  return elevenLabsAvailable
 }
 
 export const voiceEngine: VoiceEngine = {
   async speak(text, opts) {
-    if (await checkGoogleAvailable()) {
+    if (await checkElevenLabsAvailable()) {
       try {
-        return await googleSpeak(text, opts)
+        return await elevenLabsSpeak(text, opts)
       } catch {
-        googleAvailable = false // evita reintentar Google en cada frase de esta sesión
+        elevenLabsAvailable = false // evita reintentar en cada frase de esta sesión
       }
     }
     return webSpeechSpeak(text, opts)
   },
 
   async listen(opts) {
-    if (await checkGoogleAvailable()) {
+    if (getSpeechRecognitionCtor()) {
       try {
-        return await googleListen(opts)
+        return await webSpeechListen(opts)
       } catch (err) {
-        if ((err as Error).message === 'cancelled') throw err
-        googleAvailable = false
+        const msg = (err as Error).message
+        if (msg === 'cancelled' || msg === 'permission') throw err
+        // reconocimiento nativo falló por otra razón: probamos el respaldo si existe
       }
     }
-    return webSpeechListen(opts)
+    if (await checkElevenLabsAvailable()) {
+      return elevenLabsListen(opts)
+    }
+    throw new Error('unsupported')
   },
 
   cancelListen() {
     cancelRequested = true
     activeStream?.getTracks().forEach((t) => t.stop())
+    try {
+      activeRecognition?.stop()
+    } catch {}
   },
 
   supportsSpeechRecognition() {
-    return Boolean(navigator.mediaDevices?.getUserMedia) || Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+    return Boolean(getSpeechRecognitionCtor()) || Boolean(navigator.mediaDevices?.getUserMedia)
   },
 }
