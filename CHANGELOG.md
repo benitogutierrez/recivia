@@ -8,7 +8,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 ### Agregado
 - `README.md` con la documentación del proyecto.
 - `AGENTS.md` y `CLAUDE.md` con las reglas de commits para agentes.
-- `CHANGELOG.md`.
+- `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/ARCHITECTURE.md` y `docs/DEPLOY.md`.
+
+### Cambiado
+- `AGENTS.md` ahora incluye contexto del proyecto, comandos y reglas de cuidado.
+- Las secciones de arquitectura y despliegue del README se movieron a `docs/`.
+
+### Corregido
+- `.gitignore` ya no ignora `.env.example`.
 
 ## [1.0.0]
 
